@@ -18,15 +18,19 @@
 # <Disclaimer />
 #-------------------------------------------------------------------------------------------------
 
-[string] $script:TfsWorkingPath = "C:\Program Files\Microsoft Visual Studio 14.0\Common7\IDE"
+[string] $script:TfsWorkingPath = "C:\Program Files (x86)\Microsoft Visual Studio 14.0\Common7\IDE"
 [string] $script:TfExe = "$TfsWorkingPath\tf.exe"
 [string] $script:TfsBuild = "$TfsWorkingPath\TfsBuild.exe"
 
 [string] $script:TeamProject = "V1"
 [string] $script:TfsUrlFlag = "/collection:"
-[string] $script:TfsUrl = ""  # Define here.
+[string] $script:TfsUrl = "http://fqdn.to.your.server.com:8080/tfs/url/"  # Define here.
+
+#[string] $script:TfsUrl = "http://V1TFS:8080/tfs/hsgv1/"  # Define here.
+
+
 [string] $script:BuildDefinitionFlag = "/BuildDefinition:"
-[string] $script:BuildDefinition = "8.5"
+[string] $script:BuildDefinition = "YourBuildDefinition"
 [string] $script:DropLocationRoot = "" # Location to drop to.
 [string] $script:DropLocationRootFlag = "/DropLocationRoot:"
 [string] $script:MsbuildArgsFlag = "/msbuildarguments:"
@@ -47,7 +51,7 @@
 # <summary>
 #  Initialize the default log path for any TFS actions. 
 # </summary>
-function InitializeTfsModule([string] $root, [string] $tfsUri, [string] $script:assemblyPath, [string]:$mainScriptDir)
+function InitializeTfsModule([string] $root, [string] $tfsUri, [string] $script:assemblyPath, [string]$mainScriptDir)
 {
 	[string] $script:BuildLocation = $root
 	[string] $script:TfsUrl = $tfsUri
@@ -391,9 +395,9 @@ function ExecuteTfCommand($sourcePath, $arguments)
 
 #untested
 # <summary>
-#  Sync to the latest file revisions using tf.exe.
+#  Sync to the latest source revisions using tf.exe.
 # </summary>
-function GetLatestTfsFiles([string] $sourcePath, [bool] $force)
+function GetLatestTfsFilesWithTf([string] $sourcePath, [bool] $force)
 {
 	if (Test-Path -Path $sourcePath -PathType Container)
 	{
@@ -419,6 +423,52 @@ function GetLatestTfsFiles([string] $sourcePath, [bool] $force)
 	{
 		ExecuteTfCommand -sourcePath "$TfsWorkingPath" -arguments "get /recursive /noprompt `"$sourcePathAll`""
 	}
+}
+
+
+#untested
+# <summary>
+#  Sync to the latest source using the TFS API.
+# </summary>
+function GetLatestTfsFilesWithApi
+{
+	param
+	(
+	    #FQDN to SCCM Server
+	    [Parameter(Mandatory=$true)][string]$sourcePath
+	)
+
+    # Delete the old local copy
+    if((Test-Path -Path ($sourcePath)) -eq 1 )
+    {
+        Remove-Item -Path $sourcePath -Recurse
+        New-Item -Path $sourcePath -Type directory
+    }
+
+    # Get Team Project Collection
+    $teamProjectCollection = [Microsoft.TeamFoundation.Client.TfsTeamProjectCollectionFactory]::GetTeamProjectCollection($script:TfsUrl)
+
+    # Enter a path to your tfs server
+    $tfsServer = $script:TfsUrl
+	
+     # Get an instance of TfsTeamProjectCollection
+    $tfs=get-tfsserver $tfsServer
+	
+    # Get an instance of VersionControlServer
+    $vCS = $tfs.GetService([Microsoft.TeamFoundation.VersionControl.Client.VersionControlServer])
+    $TeamProject = $script:TeamProject.Remove(0,2)
+    $tfsProject = $vcs.GetTeamProject($TeamProject)
+
+    $workspace = $vcs.GetWorkspace($sourcePath)
+    if($workspace -eq $null)
+    {
+        $vcs.DeleteWorkspace("TFS-"+$env:COMPUTERNAME,$env:USERNAME)
+        $workspace = $vcs.CreateWorkspace("TFS-"+$env:COMPUTERNAME, $env:USERNAME)
+    }
+
+    $workspace.Map($script:TeamProject, $sourcePath)
+
+    $workspace.Get([Microsoft.TeamFoundation.VersionControl.Client.VersionSpec]::Latest ,[Microsoft.TeamFoundation.VersionControl.Client.GetOptions]::Overwrite)
 }
 
 
